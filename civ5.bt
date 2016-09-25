@@ -1,0 +1,143 @@
+//--------------------------------------
+//--- 010 Editor v6.0.2 Binary Template
+//
+// File:
+// Author: Will Urbanski
+// Revision:
+// Purpose:
+//--------------------------------------
+
+
+
+typedef struct {
+	int len;
+	char value[len] <fgcolor=cRed>;
+} c5string;
+
+struct CIV5File {
+	//file header
+    struct HEADER {
+        char CIV5[4];
+        int verify_section_header;
+        c5string version;
+        c5string build;
+        int turn;
+        byte game_mode;
+        c5string header_civ;
+        c5string difficulty;
+        c5string starting_era;
+        c5string current_era;
+        c5string pace;
+        c5string worldsize;
+        c5string map;
+    } header;
+    
+    struct EXPANSIONS {
+	    //expansion headers
+	    int num_expansions;
+	    struct EXPANSION {
+	    	byte expansion_id[16];
+	    	FSkip(4); //unknown
+	    	c5string expansion_name;
+	    } expansions[num_expansions] <optimize=false>;
+	} expansion_section;
+
+	struct MODS {
+	    int num_mods;
+	    struct MOD {
+	        byte mod_id[16];
+	    	FSkip(4); //unknown
+	    	c5string mod_name;
+	    } mods[num_mods] <optimize=false>;
+	} mod_section;
+
+	struct UNK_SECT {
+	    c5string unk_a[2];
+	    c5string player_color;
+	    FSkip(41);
+	    FSkip(4*4);
+	    c5string mapfile;
+	    int verify_section_unk[65];
+	} unk_section;
+
+	struct PLAYERDATA {
+		struct PLAYERS {
+			int num_players;
+			c5string player_name[num_players] <optimize=false>;
+		} players <optimize=false>;
+
+		struct PLAYER_TYPESA {
+			int num_player_types;
+			enum PlayerType {
+			        AI = 1,
+			        Unknown = 2,
+			        Human = 3,
+			        None = 4
+			} player_type[64];
+		} ptypesstruct <optimize=false>;
+
+		struct REGIONS {
+			int num_regions;
+			int a_region[num_regions];
+		} regions <optimize=false>;
+
+		struct TEAMS {
+			int num_teams;
+			int a_team[num_teams];
+		} teams <optimize=false>;
+
+		struct DIFFICULTIES {
+			int num_diffs;
+			int difficulty[num_diffs];
+		} difficulties <optimize=false>;
+
+		struct CIVILIZATIONS {
+			int num_civs;
+			c5string civStr[num_civs] <optimize=false>;
+		} civs <optimize=false>;
+
+		struct LEADERS {
+			int num_leaders;
+			c5string leaders[num_leaders] <optimize=false>;
+		} leaders <optimize=false>;
+
+		int unk_a;
+		int current_player_index;
+		c5string unk_b[3];
+		FSkip(309);
+		int unk_d;
+		c5string unk_e;
+		struct PASSWORDS {
+			int num_passwords;
+			c5string player_password[num_passwords] <optimize=false>;
+		} passwords <optimize=false>;
+
+		FSkip(4*68); //int unk_f[68];
+		c5string unk_g[8] <optimize=false>;
+		FSkip(4*11); //int unk_h[11] <optimize=false>;
+		int starting_era_index;
+		FSkip(4*66); //int unk_i[67];
+
+		c5string unk_h[64];
+		FSkip(4+7);
+		FSkip(4);
+		c5string game_name;
+		int time_offset;
+		byte game_started;
+		int turn_number;
+		FSkip(4);
+		FSkip(4*64);
+		FSkip(258);
+		FSkip(4);
+		c5string unk_i[2];
+		FSkip(1);
+		int random_seed;
+		FSkip(2);
+		c5string unk_j;
+		FSkip(8);
+		int number_of_city_states;
+		FSkip(4);
+		c5string unk_k[22];
+
+	} playerdatas <optimize=false>;
+} file;
