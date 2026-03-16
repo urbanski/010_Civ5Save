@@ -336,90 +336,94 @@ int  m_iAIMapHints
 
 ### CvPlot Serialization (version = 8)
 
-Each tile is a serialized `CvPlot` object (~1569 bytes for unexplored ocean, variable for land). Fields are written in this exact order:
+Each tile is a serialized `CvPlot` object (~1569 bytes for unexplored ocean, variable for land). Fields are written in this exact order with their precise C++ types:
 
 ```
-uint  uiVersion                         // = 8
-int   m_iX                              // Tile X coordinate
-int   m_iY                              // Tile Y coordinate
-int   m_iArea                           // Area ID
-int   m_iFeatureVariety                 // Feature visual variant
-int   m_iOwnershipDuration              // Turns owned
-int   m_iImprovementDuration            // Turns improved
-int   m_iUpgradeProgress                // Improvement upgrade progress
-int   m_iCulture                        // Culture on tile (obsolete in BNW)
-int   m_iNumMajorCivsRevealed           // Number of major civs that can see this
-int   m_iCityRadiusCount                // Number of cities working this tile
-int   m_iReconCount
-int   m_iRiverCrossingCount
-int   m_iResourceNum                    // Quantity of resource on tile
-char  m_cBuilderAIScratchPadPlayer      // AI scratch: which player
-short m_sBuilderAIScratchPadTurn        // AI scratch: which turn (changes by 928/turn)
-short m_sBuilderAIScratchPadValue       // AI scratch: evaluation value (v6+)
-int   m_eBuilderAIScratchPadRoute       // AI scratch: route type (v6+)
-int   m_iLandmass                       // Landmass ID
-uint  m_uiTradeRouteBitFlags            // Trade route flags
+uint   uiVersion                         // 4 bytes, = 8
+short  m_iX                              // 2 bytes: tile X coordinate
+short  m_iY                              // 2 bytes: tile Y coordinate
+int    m_iArea                           // 4 bytes: area ID
+char   m_iFeatureVariety                 // 1 byte: feature visual variant
+short  m_iOwnershipDuration              // 2 bytes: turns owned
+short  m_iImprovementDuration            // 2 bytes: turns improved
+short  m_iUpgradeProgress                // 2 bytes: improvement upgrade progress
+short  m_iCulture                        // 2 bytes: culture value
+char   m_iNumMajorCivsRevealed           // 1 byte
+char   m_iCityRadiusCount                // 1 byte
+char   m_iReconCount                     // 1 byte
+char   m_iRiverCrossingCount             // 1 byte
+char   m_iResourceNum                    // 1 byte: resource quantity
+char   m_cBuilderAIScratchPadPlayer      // 1 byte: AI scratch: which player
+short  m_sBuilderAIScratchPadTurn        // 2 bytes: AI scratch: turn (changes by 928/turn)
+short  m_sBuilderAIScratchPadValue       // 2 bytes: AI scratch: value (v6+)
+int    m_eBuilderAIScratchPadRoute       // 4 bytes: AI scratch: route type (v6+)
+int    m_iLandmass                       // 4 bytes: landmass ID
+uint   m_uiTradeRouteBitFlags            // 4 bytes: trade route flags
 
-bool  m_bStartingPlot
-bool  m_bHills                          // Whether tile has hills
-bool  m_bNEOfRiver                      // River adjacency flags
-bool  m_bWOfRiver
-bool  m_bNWOfRiver
-bool  m_bPotentialCityWork
-bool  m_bImprovementPillaged
-bool  m_bRoutePillaged
-bool  m_bBarbCampNotConverting
-bool  m_bRoughFeature
-bool  m_bResourceLinkedCityActive
+bool   m_bStartingPlot                   // 1 byte
+bool   m_bHills                          // 1 byte
+bool   m_bNEOfRiver                      // 1 byte: river adjacency
+bool   m_bWOfRiver                       // 1 byte
+bool   m_bNWOfRiver                      // 1 byte
+bool   m_bPotentialCityWork              // 1 byte
+bool   m_bImprovementPillaged            // 1 byte
+bool   m_bRoutePillaged                  // 1 byte
+bool   m_bBarbCampNotConverting          // 1 byte
+bool   m_bRoughFeature                   // 1 byte
+bool   m_bResourceLinkedCityActive       // 1 byte
+bool   m_bImprovedByGiftFromMajor        // 1 byte (v7+)
 
-char  m_eOwner                          // Owning player (0xFF = none)
-char  m_ePlotType                       // 0=Land, 1=Hills, 2=Mountain, 3=Ocean
-char  m_eTerrainType                    // 0=Grass..6=Ocean (see table below)
-uint  m_eFeatureType                    // Hashed (v8+): forest, jungle, marsh, etc.
-uint  m_eResourceType                   // Hashed (v8+): iron, horses, wheat, etc.
-uint  m_eImprovementType               // Hashed: farm, mine, road, etc.
-char  m_ePlayerResponsibleForImprovement
-char  m_ePlayerResponsibleForRoute
-char  m_ePlayerThatClearedBarbCampHere
-int   m_eRouteType                      // Route type (road, railroad, none)
-int   m_eWorldAnchor
-int   m_cWorldAnchorData
-int   m_eRiverEFlowDirection            // River flow directions
-int   m_eRiverSEFlowDirection
-int   m_eRiverSWFlowDirection
+char   m_eOwner                          // 1 byte: 0xFF = unowned
+char   m_ePlotType                       // 1 byte: 0=Land, 1=Hills, 2=Mountain, 3=Ocean
+char   m_eTerrainType                    // 1 byte: 0=Grass..6=Ocean
+hash   m_eFeatureType                    // 4+ bytes: hashed (v8+)
+hash   m_eResourceType                   // 4+ bytes: hashed (v8+)
+hash   m_eImprovementType               // 4+ bytes: hashed
+hash   m_eImprovementTypeUnderConstruction // 4+ bytes: hashed
+char   m_ePlayerBuiltImprovement         // 1 byte
+char   m_ePlayerResponsibleForImprovement // 1 byte
+char   m_ePlayerResponsibleForRoute      // 1 byte
+char   m_ePlayerThatClearedBarbCampHere  // 1 byte
+char   m_eRouteType                      // 1 byte
+char   m_eWorldAnchor                    // 1 byte
+char   m_cWorldAnchorData                // 1 byte
+char   m_eRiverEFlowDirection            // 1 byte
+char   m_eRiverSEFlowDirection           // 1 byte
+char   m_eRiverSWFlowDirection           // 1 byte
 
-// City references (owner + ID pairs, 2 bytes each):
-IDInfo m_plotCity                        // City on this plot
-IDInfo m_workingCity                     // City working this plot
-IDInfo m_workingCityOverride
-IDInfo m_ResourceLinkedCity
-IDInfo m_purchaseCity
+// City references (owner:char + ID:int = 5 bytes each):
+IDInfo m_plotCity                         // 5 bytes: city on this plot
+IDInfo m_workingCity                      // 5 bytes: city working this plot
+IDInfo m_workingCityOverride             // 5 bytes
+IDInfo m_ResourceLinkedCity              // 5 bytes
+IDInfo m_purchaseCity                    // 5 bytes
 
-// Per-type arrays:
-int   m_aiYield[NUM_YIELD_TYPES]        // 6 entries (food, production, gold, science, culture, faith)
-int   m_aiFoundValue[MAX_TEAMS]         // 22 entries: city founding desirability per player
-int   m_aiPlayerCityRadiusCount[MAX_TEAMS]  // 22 entries
-int   m_aiVisibilityCount[MAX_TEAMS]    // 22 entries: visibility per team
-int   m_aiRevealedOwner[MAX_TEAMS]      // 22 entries (0xFF = unknown) ← part of FF block
+// Per-type arrays (MAX_TEAMS = MAX_PLAYERS = 64):
+short  m_aiYield[6]                      // 12 bytes (food, prod, gold, sci, culture, faith)
+int    m_aiFoundValue[64]                // 256 bytes: AI city founding value per player
+char   m_aiPlayerCityRadiusCount[64]     // 64 bytes
+short  m_aiVisibilityCount[64]           // 128 bytes: visibility per team
+char   m_aiRevealedOwner[64]             // 64 bytes (0xFF = unknown) ← FF block
 
-char  m_cRiverCrossing
-DWORD m_bfRevealed                      // Packed bitfield (v5+) ← part of FF block
+char   m_cRiverCrossing                  // 1 byte
+DWORD  m_bfRevealed[4]                   // 16 bytes: packed bitfield (128 bits for 64 teams)
 
-bool  m_abResourceForceReveal[MAX_TEAMS]  // 22 entries
-int   m_aeRevealedImprovementType[MAX_TEAMS]  // 22 entries
-int   m_aeRevealedRouteType[MAX_TEAMS]  // 22 entries
-bool  m_abNoSettling[MAX_MAJOR_CIVS]    // 22 entries
+bool   m_abResourceForceReveal[64]       // 64 bytes
+hash   m_aeRevealedImprovementType[64]   // variable: hashed per team
+short  m_aeRevealedRouteType[64]         // 128 bytes
+bool   m_abNoSettling[64]                // 64 bytes
 
 // Variable-length fields:
-bool  hasScriptData                     // If true: length-prefixed string follows
-int   buildProgressCount                // 0 if null, else hashed array
-int[][] m_apaiInvisibleVisibilityCount  // 2D array
-uint  numUnits                          // Units on this plot
-  for each: [char eOwner] [int iID]
-char  m_cContinentType                  // Continent assignment
+bool   hasScriptData                     // 1 byte; if true: length-prefixed string follows
+int    buildProgressCount                // 4 bytes; if > 0: hashed array follows
+int[][]  m_apaiInvisibleVisibilityCount  // 2D array (MAX_TEAMS × NUM_INVISIBLE_TYPES)
+uint   numUnits                          // 4 bytes: units on this plot
+  for each: [char eOwner] [int iID]      // 5 bytes per unit
+char   m_cContinentType                  // 1 byte
+// m_kArchaeologyData                    // variable (BNW only)
 ```
 
-Constants: `MAX_TEAMS` = `REALLY_MAX_PLAYERS` = 22, `NUM_YIELD_TYPES` = 6 (BNW).
+Constants: `MAX_TEAMS` = `MAX_PLAYERS` = 64, `NUM_YIELD_TYPES` = 6 (BNW).
 
 #### Tile Landmarks for Binary Parsing
 
@@ -428,14 +432,14 @@ Key landmarks within each tile for practical binary parsing:
 ##### FF Block (Revealed Owner + Revealed Bitfield) — offset ~+118 from tile start
 
 ```
-[22 bytes: m_aiRevealedOwner]  // per-team, 0xFF for unrevealed
-[1 byte:  m_cRiverCrossing]
-[DWORD:   m_bfRevealed]        // packed bitfield
+[64 bytes: m_aiRevealedOwner]  // per-team, 0xFF for unrevealed
+[1 byte:   m_cRiverCrossing]
+[16 bytes: m_bfRevealed]       // 4 DWORDs packed bitfield
 ```
 
-For unexplored tiles, the `m_aiRevealedOwner` entries are all `0xFF`, creating a distinctive run of `0xFF` bytes that serves as a reliable tile marker.
+For unexplored tiles, the `m_aiRevealedOwner` entries are all `0xFF`, creating a distinctive ~80-byte run of `0xFF` bytes (64 + padding from adjacent zero fields) that serves as a reliable tile marker.
 
-##### Builder AI Scratch Pad — offset ~+57 from tile start
+##### Builder AI Scratch Pad — offset ~+30 from tile start
 
 ```
 [char:  m_cBuilderAIScratchPadPlayer]
