@@ -265,7 +265,31 @@ Standard zlib inflate. The decompressed data contains:
 - Great person notifications
 - Histogram/replay datasets
 
-The internal format of the decompressed data is complex and not fully documented.
+### Decompressed Payload Structure
+
+The decompressed data (~21 MB typical) contains sequential fields:
+
+| Order | Type | Field | Notes |
+|-------|------|-------|-------|
+| 1 | int32 | unknown | Typically 1 |
+| 2 | int32 | unknown | Typically 0 |
+| 3 | int32 | currentTurn | Duplicate of header field |
+| 4–5 | int32 | unknown | Zeros |
+| 6 | int32 | startingYear | e.g. -4000 for 4000 BC |
+| 7–8 | int32 | maxTurnCount | e.g. 500 |
+| 9 | int32 | playTime | Deciseconds (with appended digit) |
+| 10 | int32 | unknown | Zero |
+| — | bytes | skip | 90 bytes |
+| — | counted array | notes | [int32: count] + c5strings |
+| — | counted array | cityNotifications | [int32: count] + c5strings |
+| — | counted array | greatPersonNotifs | [int32: count] + c5strings |
+| — | string-prefixed | replayData | Prefixed with `"REPLAYDATASET_SCORE"` |
+| — | SQLite DB | gameDatabase | Standard SQLite, 1024-byte page size |
+
+The map data appears in at least 3 duplicate locations within the decompressed payload.
+
+### File Terminator
+The file ends with the 4-byte sequence: `00 00 FF FF`.
 
 ## Build Version History
 
