@@ -1,143 +1,311 @@
 //--------------------------------------
-//--- 010 Editor v6.0.2 Binary Template
+//--- 010 Editor Binary Template
 //
-// File:
-// Author: Will Urbanski
-// Revision:
-// Purpose:
+// File:     civ5.bt
+// Author:   Will Urbanski (original), expanded via reverse engineering
+// Revision: 2.0
+// Purpose:  Parse Civilization V .Civ5Save files
+//
+// Format notes:
+//   - File begins with "CIV5" magic (4 bytes)
+//   - Sections are delimited by 0x40000000 (LE: 40 00 00 00)
+//   - Strings are length-prefixed: 4-byte LE int + UTF-8 data
+//   - 32 sections (33 for builds >= 395070)
+//   - Final section contains zlib-compressed game state (magic 78 9C)
+//   - Section numbering varies by game version/build
 //--------------------------------------
 
+LittleEndian();
 
+//--- Colour helpers for readability ---
+local int COLOR_HEADER   = 0x4444FF;
+local int COLOR_STRING   = 0xFF4444;
+local int COLOR_SECTION  = 0x44FF44;
+local int COLOR_PLAYER   = 0xFF8800;
+local int COLOR_COMPRESS = 0xFF44FF;
 
+//--- Length-prefixed string ---
 typedef struct {
-	int len;
-	char value[len] <fgcolor=cRed>;
-} c5string;
+    int len <hidden=true>;
+    if (len > 0)
+        char value[len] <fgcolor=COLOR_STRING>;
+} c5string <read=ReadC5String>;
 
-struct CIV5File {
-	//file header
-    struct HEADER {
-        char CIV5[4];
-        int verify_section_header;
-        c5string version;
-        c5string build;
-        int turn;
-        byte game_mode;
-        c5string header_civ;
-        c5string difficulty;
-        c5string starting_era;
-        c5string current_era;
-        c5string pace;
-        c5string worldsize;
-        c5string map;
-    } header;
-    
-    struct EXPANSIONS {
-	    //expansion headers
-	    int num_expansions;
-	    struct EXPANSION {
-	    	byte expansion_id[16];
-	    	FSkip(4); //unknown
-	    	c5string expansion_name;
-	    } expansions[num_expansions] <optimize=false>;
-	} expansion_section;
+string ReadC5String(c5string &s) {
+    if (s.len > 0)
+        return s.value;
+    return "";
+}
 
-	struct MODS {
-	    int num_mods;
-	    struct MOD {
-	        byte mod_id[16];
-	    	FSkip(4); //unknown
-	    	c5string mod_name;
-	    } mods[num_mods] <optimize=false>;
-	} mod_section;
+//--- Section delimiter marker: 0x40000000 ---
+typedef struct {
+    int marker <fgcolor=COLOR_SECTION>; // Should be 0x40000000
+} SectionDelimiter <read="--- SECTION ---">;
 
-	struct UNK_SECT {
-	    c5string unk_a[2];
-	    c5string player_color;
-	    FSkip(41);
-	    FSkip(4*4);
-	    c5string mapfile;
-	    int verify_section_unk[65];
-	} unk_section;
+//=============================================================
+// SECTION 1: File Header
+//=============================================================
+struct HEADER {
+    char    magic[4] <fgcolor=COLOR_HEADER>;           // "CIV5"
+    int     saveGameVersion <fgcolor=COLOR_HEADER>;     // 4-8, indicates format version
+    c5string gameVersion;                               // e.g. "1.0.3.18 (379995)"
+    c5string gameBuild;                                 // e.g. "379995"
+    int     currentTurn;
+    byte    gameMode;                                   // 0=Singleplayer, 1=Multiplayer, 2=Hotseat
+    c5string player1Civilization;                       // e.g. "CIVILIZATION_ROME"
+    c5string difficulty;                                // e.g. "HANDICAP_PRINCE"
+    c5string startingEra;                               // e.g. "ERA_ANCIENT"
+    c5string currentEra;                                // e.g. "ERA_CLASSICAL"
+    c5string gamePace;                                  // e.g. "GAMESPEED_STANDARD"
+    c5string mapSize;                                   // e.g. "WORLDSIZE_SMALL"
+    c5string mapFile;                                   // e.g. "Assets\\Maps\\Continents.lua"
+} header <bgcolor=0xE0E0FF>;
 
-	struct PLAYERDATA {
-		struct PLAYERS {
-			int num_players;
-			c5string player_name[num_players] <optimize=false>;
-		} players <optimize=false>;
+//=============================================================
+// DLC / Expansions
+//=============================================================
+struct DLC_SECTION {
+    int numDLC;
+    struct DLC_ENTRY {
+        byte    dlcId[16];                              // GUID (16 bytes)
+        int     dlcVersion;                             // version/unknown
+        c5string dlcName;
+    } dlc[numDLC] <optimize=false>;
+} dlcSection;
 
-		struct PLAYER_TYPESA {
-			int num_player_types;
-			enum PlayerType {
-			        AI = 1,
-			        Unknown = 2,
-			        Human = 3,
-			        None = 4
-			} player_type[64];
-		} ptypesstruct <optimize=false>;
+//=============================================================
+// Mods
+//=============================================================
+struct MOD_SECTION {
+    int numMods;
+    struct MOD_ENTRY {
+        byte    modId[16];                              // GUID (16 bytes)
+        int     modVersion;                             // version/unknown
+        c5string modName;
+    } mods[numMods] <optimize=false>;
+} modSection;
 
-		struct REGIONS {
-			int num_regions;
-			int a_region[num_regions];
-		} regions <optimize=false>;
+//=============================================================
+// SECTION 2: After mods, pre-player section
+// Contains some initial strings and the section 2 delimiter
+//=============================================================
 
-		struct TEAMS {
-			int num_teams;
-			int a_team[num_teams];
-		} teams <optimize=false>;
+// Two unknown strings (often empty or short identifiers)
+c5string postModStr1;
+c5string postModStr2;
 
-		struct DIFFICULTIES {
-			int num_diffs;
-			int difficulty[num_diffs];
-		} difficulties <optimize=false>;
+// Player 1 colour string
+c5string player1Color;
 
-		struct CIVILIZATIONS {
-			int num_civs;
-			c5string civStr[num_civs] <optimize=false>;
-		} civs <optimize=false>;
+// Unknown fixed block (41 bytes observed)
+byte unkBlock1[41];
 
-		struct LEADERS {
-			int num_leaders;
-			c5string leaders[num_leaders] <optimize=false>;
-		} leaders <optimize=false>;
+// 4 unknown integers
+int unkInts1[4];
 
-		int unk_a;
-		int current_player_index;
-		c5string unk_b[3];
-		FSkip(309);
-		int unk_d;
-		c5string unk_e;
-		struct PASSWORDS {
-			int num_passwords;
-			c5string player_password[num_passwords] <optimize=false>;
-		} passwords <optimize=false>;
+// Map file path (repeated)
+c5string mapFilePath;
 
-		FSkip(4*68); //int unk_f[68];
-		c5string unk_g[8] <optimize=false>;
-		FSkip(4*11); //int unk_h[11] <optimize=false>;
-		int starting_era_index;
-		FSkip(4*66); //int unk_i[67];
+//=============================================================
+// SECTIONS 3-4: Player statuses and names
+// Section delimiter 0x40000000 appears between sections
+//=============================================================
 
-		c5string unk_h[64];
-		FSkip(4+7);
-		FSkip(4);
-		c5string game_name;
-		int time_offset;
-		byte game_started;
-		int turn_number;
-		FSkip(4);
-		FSkip(4*64);
-		FSkip(258);
-		FSkip(4);
-		c5string unk_i[2];
-		FSkip(1);
-		int random_seed;
-		FSkip(2);
-		c5string unk_j;
-		FSkip(8);
-		int number_of_city_states;
-		FSkip(4);
-		c5string unk_k[22];
+// Scan for section delimiter and player data
+// The exact layout depends on savegame version
 
-	} playerdatas <optimize=false>;
-} file;
+struct PLAYER_NAMES {
+    int numPlayers;
+    c5string playerName[numPlayers] <optimize=false, fgcolor=COLOR_PLAYER>;
+} playerNames;
+
+//=============================================================
+// SECTION 4: Player Statuses (64 slots)
+//=============================================================
+struct PLAYER_STATUSES {
+    int numStatuses;
+    // Status: 1=AI, 2=Dead, 3=Human, 4=None/Empty
+    enum <int> PlayerStatus {
+        PS_AI      = 1,
+        PS_DEAD    = 2,
+        PS_HUMAN   = 3,
+        PS_NONE    = 4
+    } status[numStatuses] <fgcolor=COLOR_PLAYER>;
+} playerStatuses;
+
+//=============================================================
+// SECTION 5: Player Regions / Whichever are alive
+//=============================================================
+struct PLAYER_REGIONS {
+    int numRegions;
+    int region[numRegions];
+} playerRegions;
+
+//=============================================================
+// SECTION 6: Teams
+//=============================================================
+struct PLAYER_TEAMS {
+    int numTeams;
+    int team[numTeams];
+} playerTeams;
+
+//=============================================================
+// SECTION 7: Difficulty per player
+//=============================================================
+struct PLAYER_DIFFICULTIES {
+    int numDifficulties;
+    int difficultyLevel[numDifficulties];
+} playerDifficulties;
+
+//=============================================================
+// SECTION 8: Civilizations (string array)
+//=============================================================
+struct PLAYER_CIVS {
+    int numCivs;
+    c5string civilization[numCivs] <optimize=false, fgcolor=COLOR_PLAYER>;
+} playerCivs;
+
+//=============================================================
+// SECTION 9: Leaders (string array)
+//=============================================================
+struct PLAYER_LEADERS {
+    int numLeaders;
+    c5string leader[numLeaders] <optimize=false, fgcolor=COLOR_PLAYER>;
+} playerLeaders;
+
+//=============================================================
+// SECTIONS 10-18: Mid-file data
+//  - current player index, passwords, era indices,
+//    various game config, map settings
+//=============================================================
+int unkMidA;
+int currentPlayerIndex;
+c5string unkMidStr[3] <optimize=false>;
+
+// Large skip of config data (309 bytes observed)
+byte unkConfigBlock[309];
+
+int unkMidD;
+c5string unkMidE;
+
+// Passwords section
+struct PASSWORDS {
+    int numPasswords;
+    c5string password[numPasswords] <optimize=false>;
+} passwords;
+
+// Unknown integer block (68 ints)
+int unkIntBlock2[68];
+
+// 8 unknown strings
+c5string unkStrBlock1[8] <optimize=false>;
+
+// 11 unknown ints
+int unkIntBlock3[11];
+
+// Starting era index
+int startingEraIndex;
+
+// 66 unknown ints
+int unkIntBlock4[66];
+
+//=============================================================
+// SECTIONS 19-23: Player names repeated, game name, turns
+//=============================================================
+
+// 64 player color/name strings
+c5string playerSlotStr[64] <optimize=false>;
+
+// Skip padding
+byte unkPad1[11]; // 4+7 bytes
+
+int unkPad2;
+
+// Game name
+c5string gameName <fgcolor=COLOR_HEADER>;
+
+// Time offset
+int timeOffset;
+
+// Game started flag
+byte gameStarted;
+
+// Turn number (repeated)
+int turnNumber;
+
+// Unknown int
+int unkTurnPad;
+
+// 64-slot int array
+int unkPlayerInts[64];
+
+// Padding
+byte unkPad3[258];
+
+int unkPad4;
+
+// 2 unknown strings
+c5string unkLateSt[2] <optimize=false>;
+
+byte unkPad5;
+
+// Random seed
+int randomSeed <fgcolor=COLOR_HEADER>;
+
+byte unkPad6[2];
+
+c5string unkLateStr2;
+
+byte unkPad7[8];
+
+// Number of city-states
+int numCityStates <fgcolor=COLOR_HEADER>;
+
+int unkCityStatePad;
+
+// 22 unknown strings (game option keys, etc.)
+c5string unkOptionStr[22] <optimize=false>;
+
+//=============================================================
+// Remaining data until zlib compressed section
+// This includes victory conditions, map options, game options
+//
+// The exact layout varies by build version. We read the rest
+// as raw bytes and mark the zlib compressed portion.
+//=============================================================
+
+// Search for zlib magic 0x789C in remaining data
+local int64 pos = FTell();
+local int64 fileLen = FileSize();
+local int64 zlibStart = -1;
+local int found = 0;
+
+while (pos < fileLen - 1 && !found) {
+    if (ReadUByte(pos) == 0x78 && ReadUByte(pos + 1) == 0x9C) {
+        zlibStart = pos;
+        found = 1;
+    }
+    pos++;
+}
+
+if (found && zlibStart > FTell()) {
+    // Data between current position and zlib start
+    local int64 gapSize = zlibStart - FTell();
+    if (gapSize > 0) {
+        struct LATE_SECTIONS {
+            byte data[gapSize];
+        } lateSections <comment="Sections before compressed data (victory conditions, map/game options)">;
+    }
+
+    // Compressed game state
+    struct COMPRESSED_DATA {
+        local int64 compressedSize = fileLen - FTell();
+        byte zlibData[compressedSize] <fgcolor=COLOR_COMPRESS>;
+    } compressedGameState <comment="zlib compressed game state (decompress with zlib/inflate)", bgcolor=0xFFE0FF>;
+} else {
+    // No zlib found, read remaining as raw
+    local int64 remaining = fileLen - FTell();
+    if (remaining > 0) {
+        byte remainingData[remaining] <comment="Remaining unstructured data">;
+    }
+}
