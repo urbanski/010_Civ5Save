@@ -288,19 +288,39 @@ The decompressed data (~21 MB typical) contains sequential fields:
 
 The map data appears in at least 3 duplicate locations within the decompressed payload.
 
-### Map Header
+### Decompressed Payload Serialization Order
 
-Located within the decompressed payload (observed at offset `0x3851`). Identified by scanning for the pattern `[gridFlag=1] [valid_width] [valid_height]`.
+The compressed payload serializes game objects in this order (from SDK `CvGame::Read`, `CvMap::Read`, etc.):
+
+1. **CvGame** — game-level state (turns, scores, random seeds, replay messages, deals)
+2. **CvBarbarians** + **CvGoodyHuts** — supporting class data
+3. **CvMap** — map header, all plots, areas, landmasses
+4. **CvTeam[]** — all teams
+5. **CvPlayer[]** — all players (each containing cities, units, AI subsystems)
+6. **Embedded SQLite DB** — `Civ5SavedGameDatabase.db` (size-prefixed raw bytes)
+
+Each class begins with a `uint uiVersion` for backward compatibility. There is **no tagged serialization** — fields are written/read in fixed order with no type markers or field IDs.
+
+### CvMap Serialization (version = 1)
 
 ```
-[int32: gridFlag]       // Always 1
-[int32: width]          // Map width in tiles (e.g. 80 for WORLDSIZE_SMALL)
-[int32: height]         // Map height in tiles (e.g. 52)
-[int32: numPlots]       // Number of special plots (≤ width×height)
-[int32: numAreas]       // Number of distinct areas (e.g. 226)
-[int32: numLandmasses]  // Number of landmasses (e.g. 6)
-[int32: unknown]        // Observed: 90
-[int32: unknown]        // Observed: -90
+uint uiVersion          // = 1
+int  m_iGridWidth       // Map width in tiles
+int  m_iGridHeight      // Map height in tiles
+int  m_iLandPlots       // Number of land plots
+int  m_iOwnedPlots      // Number of owned plots
+int  m_iNumNaturalWonders
+int  m_iTopLatitude     // e.g. 90
+int  m_iBottomLatitude  // e.g. -90
+bool m_bWrapX           // Horizontal wrapping
+bool m_bWrapY           // Vertical wrapping (always false)
+GUID (16 bytes)         // Map GUID
+HashedArray m_paiNumResource
+HashedArray m_paiNumResourceOnLand
+CvPlot[width×height]    // All tiles in row-major order (index = y*width + x)
+CvArea[]                // Area containers
+CvLandmass[]            // Landmass containers
+int  m_iAIMapHints
 ```
 
 #### Map Sizes
@@ -314,43 +334,123 @@ Located within the decompressed payload (observed at offset `0x3851`). Identifie
 | LARGE     | 104   | 64     | 6656        |
 | HUGE      | 128   | 80     | 10240       |
 
-### Tile Data
+### CvPlot Serialization (version = 8)
 
-Tile data follows the map header after approximately 1276 bytes of intervening data. Tiles are stored in row-major order (y=0 at south, increasing northward), left to right (x=0 at west).
-
-Each tile occupies approximately **1569 bytes** for unexplored ocean tiles. Explored and land tiles with features, units, or improvements are larger (1569–2066+ bytes) due to variable-length fields.
-
-#### Tile Structure (CvPlot)
-
-Each tile corresponds to a serialized `CvPlot` object from the game engine. The structure contains 76+ fields, many of which are variable-length. Key landmarks within each tile:
-
-##### First FF Block (Visibility Data) — offset ~+118 from tile start
+Each tile is a serialized `CvPlot` object (~1569 bytes for unexplored ocean, variable for land). Fields are written in this exact order:
 
 ```
-[80 bytes: m_aiRevealedOwner[64] + m_bfRevealed[16]]
+uint  uiVersion                         // = 8
+int   m_iX                              // Tile X coordinate
+int   m_iY                              // Tile Y coordinate
+int   m_iArea                           // Area ID
+int   m_iFeatureVariety                 // Feature visual variant
+int   m_iOwnershipDuration              // Turns owned
+int   m_iImprovementDuration            // Turns improved
+int   m_iUpgradeProgress                // Improvement upgrade progress
+int   m_iCulture                        // Culture on tile (obsolete in BNW)
+int   m_iNumMajorCivsRevealed           // Number of major civs that can see this
+int   m_iCityRadiusCount                // Number of cities working this tile
+int   m_iReconCount
+int   m_iRiverCrossingCount
+int   m_iResourceNum                    // Quantity of resource on tile
+char  m_cBuilderAIScratchPadPlayer      // AI scratch: which player
+short m_sBuilderAIScratchPadTurn        // AI scratch: which turn (changes by 928/turn)
+short m_sBuilderAIScratchPadValue       // AI scratch: evaluation value (v6+)
+int   m_eBuilderAIScratchPadRoute       // AI scratch: route type (v6+)
+int   m_iLandmass                       // Landmass ID
+uint  m_uiTradeRouteBitFlags            // Trade route flags
+
+bool  m_bStartingPlot
+bool  m_bHills                          // Whether tile has hills
+bool  m_bNEOfRiver                      // River adjacency flags
+bool  m_bWOfRiver
+bool  m_bNWOfRiver
+bool  m_bPotentialCityWork
+bool  m_bImprovementPillaged
+bool  m_bRoutePillaged
+bool  m_bBarbCampNotConverting
+bool  m_bRoughFeature
+bool  m_bResourceLinkedCityActive
+
+char  m_eOwner                          // Owning player (0xFF = none)
+char  m_ePlotType                       // 0=Land, 1=Hills, 2=Mountain, 3=Ocean
+char  m_eTerrainType                    // 0=Grass..6=Ocean (see table below)
+uint  m_eFeatureType                    // Hashed (v8+): forest, jungle, marsh, etc.
+uint  m_eResourceType                   // Hashed (v8+): iron, horses, wheat, etc.
+uint  m_eImprovementType               // Hashed: farm, mine, road, etc.
+char  m_ePlayerResponsibleForImprovement
+char  m_ePlayerResponsibleForRoute
+char  m_ePlayerThatClearedBarbCampHere
+int   m_eRouteType                      // Route type (road, railroad, none)
+int   m_eWorldAnchor
+int   m_cWorldAnchorData
+int   m_eRiverEFlowDirection            // River flow directions
+int   m_eRiverSEFlowDirection
+int   m_eRiverSWFlowDirection
+
+// City references (owner + ID pairs, 2 bytes each):
+IDInfo m_plotCity                        // City on this plot
+IDInfo m_workingCity                     // City working this plot
+IDInfo m_workingCityOverride
+IDInfo m_ResourceLinkedCity
+IDInfo m_purchaseCity
+
+// Per-type arrays:
+int   m_aiYield[NUM_YIELD_TYPES]        // 6 entries (food, production, gold, science, culture, faith)
+int   m_aiFoundValue[MAX_TEAMS]         // 22 entries: city founding desirability per player
+int   m_aiPlayerCityRadiusCount[MAX_TEAMS]  // 22 entries
+int   m_aiVisibilityCount[MAX_TEAMS]    // 22 entries: visibility per team
+int   m_aiRevealedOwner[MAX_TEAMS]      // 22 entries (0xFF = unknown) ← part of FF block
+
+char  m_cRiverCrossing
+DWORD m_bfRevealed                      // Packed bitfield (v5+) ← part of FF block
+
+bool  m_abResourceForceReveal[MAX_TEAMS]  // 22 entries
+int   m_aeRevealedImprovementType[MAX_TEAMS]  // 22 entries
+int   m_aeRevealedRouteType[MAX_TEAMS]  // 22 entries
+bool  m_abNoSettling[MAX_MAJOR_CIVS]    // 22 entries
+
+// Variable-length fields:
+bool  hasScriptData                     // If true: length-prefixed string follows
+int   buildProgressCount                // 0 if null, else hashed array
+int[][] m_apaiInvisibleVisibilityCount  // 2D array
+uint  numUnits                          // Units on this plot
+  for each: [char eOwner] [int iID]
+char  m_cContinentType                  // Continent assignment
 ```
 
-- 64 bytes: `m_aiRevealedOwner` — per-team revealed owner (0xFF = no owner, 0-22 = player index)
-- 16 bytes: `m_bfRevealed` — bitfield, 2 bits per team (explored/visible flags)
-- This block is identifiable as ~80 consecutive `0xFF` bytes for unexplored tiles
+Constants: `MAX_TEAMS` = `REALLY_MAX_PLAYERS` = 22, `NUM_YIELD_TYPES` = 6 (BNW).
 
-##### Builder AI Scratch Pad — offset ~+1027 from tile start
+#### Tile Landmarks for Binary Parsing
 
-```
-[int16: turnEvaluated]
-```
+Key landmarks within each tile for practical binary parsing:
 
-- Updated by the AI each turn; increases by exactly **928** between consecutive turns
-- Only present (non-zero) in tiles the AI has evaluated
-- Useful for cross-save tile alignment (see Two-Save Method below)
-
-##### Terrain Triplet — offset ~+1048 from tile start (FF block + 930)
+##### FF Block (Revealed Owner + Revealed Bitfield) — offset ~+118 from tile start
 
 ```
-[uint8: owner]          // 0xFF = unowned, 0-22 = owning player index
-[uint8: plotType]       // 0=Land, 1=Hills, 2=Mountain, 3=Ocean
-[uint8: terrainType]    // 0=Grass, 1=Plains, 2=Desert, 3=Tundra, 4=Snow, 5=Coast, 6=Ocean
-[4 bytes: featureHash]  // Hashed feature type (forest, jungle, marsh, etc.)
+[22 bytes: m_aiRevealedOwner]  // per-team, 0xFF for unrevealed
+[1 byte:  m_cRiverCrossing]
+[DWORD:   m_bfRevealed]        // packed bitfield
+```
+
+For unexplored tiles, the `m_aiRevealedOwner` entries are all `0xFF`, creating a distinctive run of `0xFF` bytes that serves as a reliable tile marker.
+
+##### Builder AI Scratch Pad — offset ~+57 from tile start
+
+```
+[char:  m_cBuilderAIScratchPadPlayer]
+[short: m_sBuilderAIScratchPadTurn]     // Changes by exactly 928 between consecutive turns
+```
+
+Useful for cross-save tile alignment (see Two-Save Method below).
+
+##### Terrain Fields — offset ~+1048 from tile start (FF block + 930)
+
+```
+[char: m_eOwner]         // 0xFF = unowned, 0-22 = player index
+[char: m_ePlotType]      // 0=Land, 1=Hills, 2=Mountain, 3=Ocean
+[char: m_eTerrainType]   // 0=Grass, 1=Plains, 2=Desert, 3=Tundra, 4=Snow, 5=Coast, 6=Ocean
+[uint: m_eFeatureType]   // Hashed feature (forest, jungle, etc.)
 ```
 
 #### Terrain Types
@@ -383,9 +483,21 @@ Tile size varies based on content:
 | Unexplored ocean | 1569 bytes | Minimum tile size, all fixed fields |
 | Explored ocean | ~1569 bytes | Same size, visibility fields populated |
 | Explored land (empty) | ~1577 bytes | +8 bytes for exploration data |
-| Land with features | 1600–2066+ bytes | Variable: units, improvements, routes |
+| Land with features | 1600–2066+ bytes | Variable: units, improvements, routes, script data |
 
-The 8-byte expansion for explored land tiles causes cumulative offset drift when using fixed-stride parsing.
+The variable-length fields (script data, build progress, units on plot) cause tile size to vary. This means fixed-stride parsing loses alignment after encountering tiles with extra data.
+
+### CvLandmass Serialization (version = 1)
+
+```
+uint uiVersion     // = 1
+int  m_iID
+int  m_iNumTiles
+int  m_iCentroidX
+int  m_iCentroidY
+bool m_bWater
+char m_cContinentType
+```
 
 ### Two-Save Extraction Method
 
@@ -398,6 +510,19 @@ For higher accuracy, two saves from **consecutive turns of the same game** can b
 5. Read terrain at known offset from each anchor point
 
 This method finds ~1358 tiles (tiles the AI has evaluated). Remaining tiles use FF-block detection with stride-1569 interpolation to fill gaps.
+
+### Hashed Data Arrays
+
+Later format versions (v8+ for CvPlot) serialize game info types by string hash rather than raw index. This makes saves resilient to XML/mod changes. Format:
+
+```
+[int32: count]
+  repeated count times:
+    [uint32: hash]    // Hash of the type's string key (e.g. hash of "RESOURCE_IRON")
+    [value]           // The associated value (type depends on context)
+```
+
+Used for: `m_eFeatureType`, `m_eResourceType`, `m_eImprovementType`, and various arrays in CvCity, CvPlayer, and CvGame.
 
 ### File Terminator
 The file ends with the 4-byte sequence: `00 00 FF FF`.
