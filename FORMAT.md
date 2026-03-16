@@ -334,12 +334,12 @@ int  m_iAIMapHints
 | LARGE     | 104   | 64     | 6656        |
 | HUGE      | 128   | 80     | 10240       |
 
-### CvPlot Serialization (version = 8)
+### CvPlot Serialization (version = 7)
 
-Each tile is a serialized `CvPlot` object (~1569 bytes for unexplored ocean, variable for land). Fields are written in this exact order with their precise C++ types:
+Each tile is a serialized `CvPlot` object (~1569 bytes for unexplored ocean, variable for land). Plots are stored back-to-back with **no delimiters or length prefixes** between them. Fields are written in this exact order with their precise C++ types and byte sizes (source: `CvPlot.cpp` lines 9353-9717):
 
 ```
-uint   uiVersion                         // 4 bytes, = 8
+uint   uiVersion                         // 4 bytes, g_CurrentCvPlotVersion = 7
 short  m_iX                              // 2 bytes: tile X coordinate
 short  m_iY                              // 2 bytes: tile Y coordinate
 int    m_iArea                           // 4 bytes: area ID
@@ -376,11 +376,11 @@ bool   m_bImprovedByGiftFromMajor        // 1 byte (v7+)
 char   m_eOwner                          // 1 byte: 0xFF = unowned
 char   m_ePlotType                       // 1 byte: 0=Land, 1=Hills, 2=Mountain, 3=Ocean
 char   m_eTerrainType                    // 1 byte: 0=Grass..6=Ocean
-hash   m_eFeatureType                    // 4+ bytes: hashed (v8+)
-hash   m_eResourceType                   // 4+ bytes: hashed (v8+)
-hash   m_eImprovementType               // 4+ bytes: hashed
-hash   m_eImprovementTypeUnderConstruction // 4+ bytes: hashed
-char   m_ePlayerBuiltImprovement         // 1 byte
+uint   m_eFeatureType                    // 4 bytes: hash via ReadHashed (v3+), else char
+uint   m_eResourceType                   // 4 bytes: hash via ReadHashed
+uint   m_eImprovementType               // 4 bytes: hash via ReadHashed (v5+), else char
+uint   m_eImprovementTypeUnderConstruction // 4 bytes: hash via ReadHashed (v7+)
+char   m_ePlayerBuiltImprovement         // 1 byte (v2+)
 char   m_ePlayerResponsibleForImprovement // 1 byte
 char   m_ePlayerResponsibleForRoute      // 1 byte
 char   m_ePlayerThatClearedBarbCampHere  // 1 byte
@@ -391,14 +391,14 @@ char   m_eRiverEFlowDirection            // 1 byte
 char   m_eRiverSEFlowDirection           // 1 byte
 char   m_eRiverSWFlowDirection           // 1 byte
 
-// City references (owner:char + ID:int = 5 bytes each):
-IDInfo m_plotCity                         // 5 bytes: city on this plot
-IDInfo m_workingCity                      // 5 bytes: city working this plot
-IDInfo m_workingCityOverride             // 5 bytes
-IDInfo m_ResourceLinkedCity              // 5 bytes
-IDInfo m_purchaseCity                    // 5 bytes
+// City references (IDInfo = int eOwner + int iID = 8 bytes each):
+IDInfo m_plotCity                         // 8 bytes: city on this plot
+IDInfo m_workingCity                      // 8 bytes: city working this plot
+IDInfo m_workingCityOverride             // 8 bytes
+IDInfo m_ResourceLinkedCity              // 8 bytes
+IDInfo m_purchaseCity                    // 8 bytes
 
-// Per-type arrays (MAX_TEAMS = MAX_PLAYERS = 64):
+// Per-type arrays (REALLY_MAX_PLAYERS = REALLY_MAX_TEAMS = 64):
 short  m_aiYield[6]                      // 12 bytes (food, prod, gold, sci, culture, faith)
 int    m_aiFoundValue[64]                // 256 bytes: AI city founding value per player
 char   m_aiPlayerCityRadiusCount[64]     // 64 bytes
@@ -409,27 +409,58 @@ char   m_cRiverCrossing                  // 1 byte
 DWORD  m_bfRevealed[4]                   // 16 bytes: packed bitfield (128 bits for 64 teams)
 
 bool   m_abResourceForceReveal[64]       // 64 bytes
-hash   m_aeRevealedImprovementType[64]   // variable: hashed per team
+uint   m_aeRevealedImprovementType[64]   // 256 bytes: hash via ReadHashed (v6+), else short
 short  m_aeRevealedRouteType[64]         // 128 bytes
-bool   m_abNoSettling[64]                // 64 bytes
+bool   m_abNoSettling[22]                // 22 bytes (MAX_MAJOR_CIVS = 22)
 
 // Variable-length fields:
 bool   hasScriptData                     // 1 byte; if true: length-prefixed string follows
-int    buildProgressCount                // 4 bytes; if > 0: hashed array follows
-int[][]  m_apaiInvisibleVisibilityCount  // 2D array (MAX_TEAMS × NUM_INVISIBLE_TYPES)
+int    buildProgressCount                // 4 bytes; if > 0: BuildArrayHelpers follows
+                                         //   format: int count, then per entry: uint hash + short value
+short  m_apaiInvisibleVisibilityCount[]  // 2D array [REALLY_MAX_TEAMS × NUM_INVISIBLE_TYPES]
 uint   numUnits                          // 4 bytes: units on this plot
-  for each: [char eOwner] [int iID]      // 5 bytes per unit
+  for each: [int eOwner] [int iID]       // 8 bytes per unit
 char   m_cContinentType                  // 1 byte
-// m_kArchaeologyData                    // variable (BNW only)
+CvArchaeologyData m_kArchaeologyData     // variable (BNW, see below)
 ```
 
-Constants: `MAX_TEAMS` = `MAX_PLAYERS` = 64, `NUM_YIELD_TYPES` = 6 (BNW).
+Constants: `REALLY_MAX_TEAMS` = `REALLY_MAX_PLAYERS` = 64, `MAX_MAJOR_CIVS` = 22, `NUM_YIELD_TYPES` = 6 (BNW).
+
+#### CvArchaeologyData (BNW)
+
+Sub-struct at end of each tile:
+
+```
+uint   uiVersion                         // 4 bytes, = 2
+int    m_eArtifactType                   // 4 bytes
+int    m_eEra                            // 4 bytes: EraTypes
+int    m_ePlayer1                        // 4 bytes: PlayerTypes
+int    m_ePlayer2                        // 4 bytes: PlayerTypes
+int    m_eWork                           // 4 bytes: GreatWorkType (v2+)
+```
+
+#### Hashed Serialization (ReadHashed/WriteHashed)
+
+Hashed fields write a `uint` (4 bytes) containing the `FString::Hash()` of the type's string key (e.g. hash of `"IMPROVEMENT_FARM"`). A hash of `0` means `NO_TYPE` (-1). On read, the hash is resolved to a runtime enum ID via `GC.getInfoTypeForHash()`.
 
 #### Tile Landmarks for Binary Parsing
 
 Key landmarks within each tile for practical binary parsing:
 
-##### FF Block (Revealed Owner + Revealed Bitfield) — offset ~+118 from tile start
+##### Fixed Header — offset +0 from tile start
+
+The first 44 bytes of each tile have a fixed layout (all fields from `uiVersion` through `m_uiTradeRouteBitFlags`). The version field (first 4 bytes) is always 7, and `m_iX`/`m_iY` (bytes 4-7) contain the tile coordinates.
+
+##### Builder AI Scratch Pad — offset +30 from tile start
+
+```
+[char:  m_cBuilderAIScratchPadPlayer]   // +30
+[short: m_sBuilderAIScratchPadTurn]     // +31, changes by exactly 928 between consecutive turns
+```
+
+Useful for cross-save tile alignment (see Two-Save Method below).
+
+##### FF Block (Revealed Owner + Revealed Bitfield) — empirically at ~+506 from tile start
 
 ```
 [64 bytes: m_aiRevealedOwner]  // per-team, 0xFF for unrevealed
@@ -439,16 +470,7 @@ Key landmarks within each tile for practical binary parsing:
 
 For unexplored tiles, the `m_aiRevealedOwner` entries are all `0xFF`, creating a distinctive ~80-byte run of `0xFF` bytes (64 + padding from adjacent zero fields) that serves as a reliable tile marker.
 
-##### Builder AI Scratch Pad — offset ~+30 from tile start
-
-```
-[char:  m_cBuilderAIScratchPadPlayer]
-[short: m_sBuilderAIScratchPadTurn]     // Changes by exactly 928 between consecutive turns
-```
-
-Useful for cross-save tile alignment (see Two-Save Method below).
-
-##### Terrain Fields — offset ~+1048 from tile start (FF block + 930)
+##### Terrain Fields — empirically at ~+72 from tile start
 
 ```
 [char: m_eOwner]         // 0xFF = unowned, 0-22 = player index
@@ -456,6 +478,8 @@ Useful for cross-save tile alignment (see Two-Save Method below).
 [char: m_eTerrainType]   // 0=Grass, 1=Plains, 2=Desert, 3=Tundra, 4=Snow, 5=Coast, 6=Ocean
 [uint: m_eFeatureType]   // Hashed feature (forest, jungle, etc.)
 ```
+
+Note: The empirical offsets account for all preceding fixed-size fields. The terrain fields appear after the 12 boolean flags (offset ~56) plus owner/plotType/terrain at ~72. The FF block appears much later after the yield arrays and per-team arrays.
 
 #### Terrain Types
 
