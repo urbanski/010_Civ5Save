@@ -288,6 +288,117 @@ The decompressed data (~21 MB typical) contains sequential fields:
 
 The map data appears in at least 3 duplicate locations within the decompressed payload.
 
+### Map Header
+
+Located within the decompressed payload (observed at offset `0x3851`). Identified by scanning for the pattern `[gridFlag=1] [valid_width] [valid_height]`.
+
+```
+[int32: gridFlag]       // Always 1
+[int32: width]          // Map width in tiles (e.g. 80 for WORLDSIZE_SMALL)
+[int32: height]         // Map height in tiles (e.g. 52)
+[int32: numPlots]       // Number of special plots (≤ width×height)
+[int32: numAreas]       // Number of distinct areas (e.g. 226)
+[int32: numLandmasses]  // Number of landmasses (e.g. 6)
+[int32: unknown]        // Observed: 90
+[int32: unknown]        // Observed: -90
+```
+
+#### Map Sizes
+
+| WORLDSIZE | Width | Height | Total Tiles |
+|-----------|-------|--------|-------------|
+| DUEL      | 40    | 24     | 960         |
+| TINY      | 56    | 36     | 2016        |
+| SMALL     | 66    | 42     | 2772        |
+| STANDARD  | 80    | 52     | 4160        |
+| LARGE     | 104   | 64     | 6656        |
+| HUGE      | 128   | 80     | 10240       |
+
+### Tile Data
+
+Tile data follows the map header after approximately 1276 bytes of intervening data. Tiles are stored in row-major order (y=0 at south, increasing northward), left to right (x=0 at west).
+
+Each tile occupies approximately **1569 bytes** for unexplored ocean tiles. Explored and land tiles with features, units, or improvements are larger (1569–2066+ bytes) due to variable-length fields.
+
+#### Tile Structure (CvPlot)
+
+Each tile corresponds to a serialized `CvPlot` object from the game engine. The structure contains 76+ fields, many of which are variable-length. Key landmarks within each tile:
+
+##### First FF Block (Visibility Data) — offset ~+118 from tile start
+
+```
+[80 bytes: m_aiRevealedOwner[64] + m_bfRevealed[16]]
+```
+
+- 64 bytes: `m_aiRevealedOwner` — per-team revealed owner (0xFF = no owner, 0-22 = player index)
+- 16 bytes: `m_bfRevealed` — bitfield, 2 bits per team (explored/visible flags)
+- This block is identifiable as ~80 consecutive `0xFF` bytes for unexplored tiles
+
+##### Builder AI Scratch Pad — offset ~+1027 from tile start
+
+```
+[int16: turnEvaluated]
+```
+
+- Updated by the AI each turn; increases by exactly **928** between consecutive turns
+- Only present (non-zero) in tiles the AI has evaluated
+- Useful for cross-save tile alignment (see Two-Save Method below)
+
+##### Terrain Triplet — offset ~+1048 from tile start (FF block + 930)
+
+```
+[uint8: owner]          // 0xFF = unowned, 0-22 = owning player index
+[uint8: plotType]       // 0=Land, 1=Hills, 2=Mountain, 3=Ocean
+[uint8: terrainType]    // 0=Grass, 1=Plains, 2=Desert, 3=Tundra, 4=Snow, 5=Coast, 6=Ocean
+[4 bytes: featureHash]  // Hashed feature type (forest, jungle, marsh, etc.)
+```
+
+#### Terrain Types
+
+| Value | Constant | Description |
+|-------|----------|-------------|
+| 0 | TERRAIN_GRASS | Grassland |
+| 1 | TERRAIN_PLAINS | Plains |
+| 2 | TERRAIN_DESERT | Desert |
+| 3 | TERRAIN_TUNDRA | Tundra |
+| 4 | TERRAIN_SNOW | Snow |
+| 5 | TERRAIN_COAST | Coastal water |
+| 6 | TERRAIN_OCEAN | Deep ocean |
+
+#### Plot Types
+
+| Value | Constant | Description |
+|-------|----------|-------------|
+| 0 | PLOT_LAND | Flat land |
+| 1 | PLOT_HILLS | Hills |
+| 2 | PLOT_MOUNTAIN | Mountain (impassable) |
+| 3 | PLOT_OCEAN | Water tile |
+
+#### Tile Size Variability
+
+Tile size varies based on content:
+
+| Tile Type | Approximate Size | Notes |
+|-----------|-----------------|-------|
+| Unexplored ocean | 1569 bytes | Minimum tile size, all fixed fields |
+| Explored ocean | ~1569 bytes | Same size, visibility fields populated |
+| Explored land (empty) | ~1577 bytes | +8 bytes for exploration data |
+| Land with features | 1600–2066+ bytes | Variable: units, improvements, routes |
+
+The 8-byte expansion for explored land tiles causes cumulative offset drift when using fixed-stride parsing.
+
+### Two-Save Extraction Method
+
+For higher accuracy, two saves from **consecutive turns of the same game** can be compared:
+
+1. Decompress both saves
+2. Align first-tile offsets
+3. Scan for 2-byte positions where `save2_value - save1_value == 928` (the builder AI scratch pad increment)
+4. These positions precisely mark tile boundaries
+5. Read terrain at known offset from each anchor point
+
+This method finds ~1358 tiles (tiles the AI has evaluated). Remaining tiles use FF-block detection with stride-1569 interpolation to fill gaps.
+
 ### File Terminator
 The file ends with the 4-byte sequence: `00 00 FF FF`.
 
@@ -308,6 +419,7 @@ The file ends with the 4-byte sequence: `00 00 FF FF`.
 |------|-------------|
 | `civ5.bt` | 010 Editor binary template for visual inspection |
 | `civ5_parser.py` | Python parser that extracts header, player, and metadata |
+| `civ5_map.py` | Map extractor — renders terrain from decompressed tile data |
 
 ## References
 
